@@ -651,3 +651,15 @@ body.playing .deck-left { bottom: auto; top: 54%; left: 22%; }
 .guest-choice { display: grid; gap: 6px; justify-items: start; padding: 14px; border-radius: 14px;
   border: 2px solid var(--gold); background: color-mix(in srgb, var(--gold) 8%, transparent); }
 .linklike { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
+
+/* Resumen final: un solo cuadro con scroll, también en el móvil */
+.summary-box { max-height: min(70vh, 640px); overflow-y: auto; padding-right: 4px; }
+.summary-box h3 { margin-top: 14px; }
+.bot-why { border-top: 1px solid var(--line, rgba(0,0,0,.12)); padding-top: 6px; margin-top: 6px; }
+.bot-why ul { margin: 4px 0 6px; padding-left: 18px; }
+.bot-why li { margin: 3px 0; line-height: 1.35; }
+
+/* Selector de rapidez en la mesa */
+.speed-field { border: 0; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px; }
+.speed-field legend { float: left; font-size: .9em; color: var(--muted, #666); margin-right: 6px; }
+.speed-seg label { font-size: .9em; }

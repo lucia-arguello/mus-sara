@@ -25,6 +25,7 @@ from musst.learning.updater import Learner
 from musst.persistence.db import Repository, RepositoryModelStore
 from musst.runtime.runner import FallbackBot, offer_signals
 from musst.server.personajes import PERSONAJES, reparto
+from musst.server.razones import explain_move
 
 log = logging.getLogger("musst.public.server")
 
@@ -57,6 +58,7 @@ class GameSession:
     invite_token: str | None = None
     learning: list[str] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)  # solo modo desarrollo
+    reasons: list[dict[str, Any]] = field(default_factory=list)  # «por qué» de cada bot (al final)
     dealt_round: int = 0  # última jugada repartida con permiso del jugador ("¿Repartimos?")
     lock: threading.Lock = field(default_factory=threading.Lock)
     last_activity: float = field(default_factory=time.time)
@@ -332,6 +334,12 @@ class SessionManager:
                 action = seat.bot.decide(obs)
                 game.apply(turn, action)
             session.actions.append({"seat": turn, "action": action_to_dict(action)})
+            try:
+                why = explain_move(obs, action, seat.bot)
+            except Exception:  # la explicación nunca rompe la partida
+                why = None
+            if why is not None:
+                session.reasons.append(why)
             self._bot_signals(session)
             last = getattr(seat.bot, "last_decision", None)
             if isinstance(last, Decision):
@@ -452,6 +460,7 @@ class SessionManager:
             "counterfactuals": decision_counterfactuals(history, seat.index),
             "learning": session.learning,
             "history": history,
+            "bot_reasons": session.reasons,
         }
 
     # ------------------------------------------------------------------ persistencia
