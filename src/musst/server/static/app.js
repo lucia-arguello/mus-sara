@@ -363,6 +363,7 @@ const SOUND_OF = {
 // ------------------------------------------------------------------ navegación
 const views = { home, learn, arena, stats, settings: settingsView, game: () => renderGame(), tutorial, training, admin: adminView, champs: champsView, champ: champView, profile, room: roomLobby };
 const OPEN_VIEWS = new Set(["home", "learn", "tutorial", "settings"]);
+const PRIVATE_VIEWS = new Set(["arena", "stats", "profile", "room", "champs", "champ", "admin", "training"]);
 function playAsGuest() {
   guest = true;
   updateAccount();
@@ -371,19 +372,32 @@ function playAsGuest() {
 }
 function loginGate() {
   $main.append(h(`<div class="page"><section class="panel stack login-gate">
-    <span class="kicker">MUS.ST</span><h1 class="page-title">Inicia sesión para jugar</h1>
-    <p>Con tu cuenta se guardan tus partidas y lo que la IA aprende de tu forma de jugar.${LOCAL && !cloud.cloudEnabled() ? " Las cuentas se guardan en este navegador; la primera que se crea es la de administración." : ""}</p>
-    <div class="row"><button class="btn primary" id="gate-guest">Jugar sin iniciar sesión</button><button class="btn" id="gate-login">Entrar o crear cuenta</button><button class="btn ghost" data-nav="tutorial">Ver el tutorial</button><button class="btn ghost" data-nav="learn">Aprender las reglas</button></div>
+    <span class="kicker">MUS.ST</span><h1 class="page-title">Esto necesita una cuenta</h1>
+    <div class="guest-choice">
+      <button class="btn primary big" id="gate-guest">▶ Partida rápida sin registrarte</button>
+      <p class="muted">Tú y un bot contra dos bots, a 40 tantos. No hace falta cuenta: la partida no se guarda en tu historial.</p>
+    </div>
+    <p>Con una cuenta se guardan tus partidas y lo que la IA aprende de tu forma de jugar, y puedes jugar con amigos y en campeonatos.${LOCAL && !cloud.cloudEnabled() ? " Las cuentas se guardan en este navegador; la primera que se crea es la de administración." : ""}</p>
+    <div class="row"><button class="btn" id="gate-login">Entrar o crear cuenta</button><button class="btn ghost" data-nav="tutorial">Ver el tutorial</button><button class="btn ghost" data-nav="learn">Aprender las reglas</button></div>
   </section></div>`));
-  document.getElementById("gate-guest").onclick = playAsGuest;
   document.getElementById("gate-login").onclick = () => loginDialog();
+  document.getElementById("gate-guest").onclick = startGuestGame;
+}
+// Partida rápida de invitado: sin cuenta. El servidor (o el navegador) la juega con un
+// asiento de invitado; no se guarda en ningún historial.
+function startGuestGame() {
+  $modal.close?.();
+  guest = true;
+  updateAccount();
+  startGame({ mode: "rapida", rivals: "medio", partner: "sencillo", name: "Invitado" });
 }
 function go(name, ...args) {
   document.querySelectorAll(".topnav button").forEach((b) => b.setAttribute("aria-current", b.dataset.nav === name ? "page" : "false"));
   $main.innerHTML = "";
   document.body.classList.toggle("playing", name === "game");
-  // Las cuentas son opcionales para jugar; solo las vistas privadas requieren perfil.
-  if (!user && !guest && !OPEN_VIEWS.has(name) && ["arena", "stats", "profile", "room", "champs", "champ", "admin", "training"].includes(name)) { loginGate(); return; }
+  // Las cuentas son opcionales para jugar; las vistas privadas necesitan un usuario de verdad
+  // (en modo invitado tampoco: esas pantallas leen el perfil).
+  if (!user && PRIVATE_VIEWS.has(name)) { loginGate(); return; }
   (views[name] || home)(...args);
   $main.focus({ preventScroll: true });
   window.scrollTo(0, 0);
@@ -490,9 +504,10 @@ async function startGame(body, opts = {}) {
       id: data.game_id, token: data.seat_token, tokens: data.seat_tokens || {}, obs: data.observation, seen: 0,
       help: Boolean(opts.help), discard: new Set(), amount: 2, busy: false, bubbles: {}, gestures: {},
       champ: opts.champ || null,  // partido de campeonato: al terminar se apunta el resultado
+      guest: !user,
     };
     current.seen = maxSeq(current.obs);
-    store.set("musst.current", { id: current.id, token: current.token, tokens: current.tokens, champ: current.champ });
+    store.set("musst.current", { id: current.id, token: current.token, tokens: current.tokens, champ: current.champ, guest: !user });
     play("deal");
     go("game");
   } catch (err) { toast(err.message); }
@@ -1280,10 +1295,13 @@ async function showSummary() {
       ${a.learning.length ? `<h3>Aprendizaje del bot</h3><ul>${a.learning.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
       <div class="row" style="margin-top:12px">
         <button class="btn primary" id="again">Otra partida</button>
+        ${user ? "" : '<button class="btn" id="guest-signup">Crear cuenta para guardar mis partidas</button>'}
         <button class="btn" id="to-replay">▶ Replay</button>
         <button class="btn ghost" data-close>Cerrar</button>
       </div>`);
-    document.getElementById("again").onclick = () => { $modal.close(); startGame({ mode: current.obs.mode, rivals: current.obs.seats[1].level || "medio", partner: current.obs.seats[2].level || "sencillo" }); };
+    document.getElementById("again").onclick = () => { $modal.close(); startGame({ mode: current.obs.mode, rivals: current.obs.seats[1].level || "medio", partner: current.obs.seats[2].level || "sencillo" }, { guest: !user }); };
+    const signup = document.getElementById("guest-signup");
+    if (signup) signup.onclick = () => loginDialog();
     document.getElementById("to-replay").onclick = () => { $modal.close(); replayFromHistory(a.history, current.obs.seats); };
   } catch (err) { toast(err.message); }
 }
@@ -1545,11 +1563,14 @@ function loginDialog() {
       <label class="field">Usuario<input name="username" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\\-]+"></label>
       ${LOCAL && cloud.cloudEnabled() ? `<label class="field">Contraseña<input name="password" type="password" autocomplete="current-password" required minlength="8"></label>
       <p class="muted">Tu cuenta guarda tus partidas y lo que la IA aprende de tu forma de jugar, en cualquier dispositivo.</p>
-      <div class="row"><button class="btn primary" value="login">Entrar</button><button class="btn" value="register">Crear cuenta</button><button class="btn ghost" type="button" data-close>Cancelar</button></div>`
+      <div class="row"><button class="btn primary" value="login">Entrar</button><button class="btn" value="register">Crear cuenta</button><button class="btn ghost" type="button" data-close>Cancelar</button></div>
+      <p class="muted"><button class="linklike" type="button" id="lf-guest">o juega una partida rápida sin registrarte</button></p>`
       : `<label class="field">Contraseña<input name="password" type="password" autocomplete="current-password" required minlength="8"></label>
       <p class="muted">${LOCAL ? "Las cuentas se guardan en este navegador. La primera que se crea es la de administración." : "Solo guardamos tu usuario y un hash de la contraseña. Nada más."}</p>
-      <div class="row"><button class="btn primary" value="login">Entrar</button><button class="btn" value="register">Crear cuenta</button><button class="btn ghost" type="button" data-close>Cancelar</button></div>`}
+      <div class="row"><button class="btn primary" value="login">Entrar</button><button class="btn" value="register">Crear cuenta</button><button class="btn ghost" type="button" data-close>Cancelar</button></div>
+      <p class="muted"><button class="linklike" type="button" id="lf-guest">o juega una partida rápida sin registrarte</button></p>`}
     </form>`);
+  document.getElementById("lf-guest").onclick = startGuestGame;
   document.getElementById("lf").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
