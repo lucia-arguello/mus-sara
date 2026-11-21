@@ -646,3 +646,8 @@ body.playing .center { position: relative; z-index: 4; }
 .data.calc tr.hl td { background: color-mix(in srgb, var(--gold) 18%, transparent); }
 .calc-why { padding: 10px 12px; border-left: 4px solid var(--gold); background: color-mix(in srgb, var(--gold) 8%, transparent); border-radius: 6px; }
 body.playing .deck-left { bottom: auto; top: 54%; left: 22%; }
+
+/* ------------------------------------------------------------------ partida sin registrarse */
+.guest-choice { display: grid; gap: 6px; justify-items: start; padding: 14px; border-radius: 14px;
+  border: 2px solid var(--gold); background: color-mix(in srgb, var(--gold) 8%, transparent); }
+.linklike { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
