@@ -24,6 +24,7 @@ const store = {
 };
 let settings = { ...DEFAULT_SETTINGS, ...store.get("musst.settings", {}) };
 let user = null;
+let guest = false;
 let current = null; // partida en curso
 let ads = cleanAds(store.get("musst.ads", DEFAULT_ADS)); // publicidad de la mesa (la elige el admin)
 
@@ -361,10 +362,17 @@ const SOUND_OF = {
 
 // ------------------------------------------------------------------ navegación
 const views = { home, learn, arena, stats, settings: settingsView, game: () => renderGame(), tutorial, training, admin: adminView, champs: champsView, champ: champView, profile, room: roomLobby };
-const OPEN_VIEWS = new Set(["learn", "tutorial", "settings"]);
+const OPEN_VIEWS = new Set(["home", "learn", "tutorial", "settings"]);
+const PRIVATE_VIEWS = new Set(["arena", "stats", "profile", "room", "champs", "champ", "admin", "training"]);
+function playAsGuest() {
+  guest = true;
+  updateAccount();
+  go("home");
+  toast("Modo invitado: puedes jugar sin una cuenta");
+}
 function loginGate() {
   $main.append(h(`<div class="page"><section class="panel stack login-gate">
-    <span class="kicker">MUS.ST</span><h1 class="page-title">¿Echamos una partida?</h1>
+    <span class="kicker">MUS.ST</span><h1 class="page-title">Esto necesita una cuenta</h1>
     <div class="guest-choice">
       <button class="btn primary big" id="gate-guest">▶ Partida rápida sin registrarte</button>
       <p class="muted">Tú y un bot contra dos bots, a 40 tantos. No hace falta cuenta: la partida no se guarda en tu historial.</p>
@@ -376,17 +384,20 @@ function loginGate() {
   document.getElementById("gate-guest").onclick = startGuestGame;
 }
 // Partida rápida de invitado: sin cuenta. El servidor (o el navegador) la juega con un
-// asiento de invitado; no se guarda en ningún historial ni la IA aprende de ella.
+// asiento de invitado; no se guarda en ningún historial.
 function startGuestGame() {
   $modal.close?.();
-  startGame({ mode: "rapida", rivals: "medio", partner: "sencillo", name: "Invitado" }, { guest: true });
+  guest = true;
+  updateAccount();
+  startGame({ mode: "rapida", rivals: "medio", partner: "sencillo", name: "Invitado" });
 }
 function go(name, ...args) {
   document.querySelectorAll(".topnav button").forEach((b) => b.setAttribute("aria-current", b.dataset.nav === name ? "page" : "false"));
   $main.innerHTML = "";
   document.body.classList.toggle("playing", name === "game");
-  // Sin sesión no se juega: primero hay que entrar (las cuentas guardan lo que la IA aprende).
-  if (!user && !OPEN_VIEWS.has(name) && !(name === "game" && current?.guest)) { loginGate(); return; }
+  // Las cuentas son opcionales para jugar; las vistas privadas necesitan un usuario de verdad
+  // (en modo invitado tampoco: esas pantallas leen el perfil).
+  if (!user && PRIVATE_VIEWS.has(name)) { loginGate(); return; }
   (views[name] || home)(...args);
   $main.focus({ preventScroll: true });
   window.scrollTo(0, 0);
@@ -409,6 +420,7 @@ function home() {
         <p>Una mesa de Mus tradicional llevada al mundo digital: juega, aprende, compite y analiza tu estilo frente a bots que se adaptan a ti.</p>
         <div class="row">
           <button class="btn primary" id="quick">Partida rápida</button>
+          ${user || guest ? "" : `<button class="btn" id="home-guest">Jugar sin iniciar sesión</button>`}
           <button class="btn" data-nav="tutorial">¿No sabes jugar? Empieza aquí</button>
         </div>
       </div>
@@ -457,6 +469,7 @@ function home() {
   </div>`));
   document.querySelectorAll('input[name="signals"]').forEach((r) => (r.onchange = () => { settings.signals = r.value === "1"; saveSettings(); }));
   document.getElementById("quick").onclick = () => startGame({ mode: "rapida", rivals: "medio", partner: "sencillo" });
+  document.getElementById("home-guest")?.addEventListener("click", playAsGuest);
   const syncPlayers = () => {
     const many = document.querySelector('input[name="players"]:checked').value !== "bot";
     document.getElementById("room-hint").hidden = !many;
@@ -485,18 +498,16 @@ function home() {
 
 // ------------------------------------------------------------------ partida
 async function startGame(body, opts = {}) {
-  const guest = !user && Boolean(opts.guest);
-  if (!user && !guest) { loginDialog(); return; }
   try {
     const data = await api("/api/games", { method: "POST", body: { signals: settings.signals !== false, ...body } });
     current = {
       id: data.game_id, token: data.seat_token, tokens: data.seat_tokens || {}, obs: data.observation, seen: 0,
       help: Boolean(opts.help), discard: new Set(), amount: 2, busy: false, bubbles: {}, gestures: {},
       champ: opts.champ || null,  // partido de campeonato: al terminar se apunta el resultado
-      guest,
+      guest: !user,
     };
     current.seen = maxSeq(current.obs);
-    store.set("musst.current", { id: current.id, token: current.token, tokens: current.tokens, champ: current.champ, guest });
+    store.set("musst.current", { id: current.id, token: current.token, tokens: current.tokens, champ: current.champ, guest: !user });
     play("deal");
     go("game");
   } catch (err) { toast(err.message); }
@@ -1574,6 +1585,7 @@ function loginDialog() {
         await api(`/api/auth/${kind}`, { method: "POST", body: { username: f.get("username"), password: f.get("password") } });
       }
       $modal.close();
+      guest = false;
       await loadUser();
       toast(kind === "register" ? (canAdmin() ? "Cuenta creada: eres administrador/a" : "Cuenta creada") : `Hola, ${user ? user.username : ""}`);
       if (pendingRoom) { const code = pendingRoom; pendingRoom = null; joinRoom(code); } else go("home");
@@ -1602,10 +1614,10 @@ async function profile() {
 }
 async function logout() {
   if (cloud.cloudEnabled()) await cloud.signOut();
-  await api("/api/auth/logout", { method: "POST" }); user = null; $modal.close?.(); updateAccount(); go("home");
+  await api("/api/auth/logout", { method: "POST" }); user = null; guest = false; $modal.close?.(); updateAccount(); go("home");
 }
 function updateAccount() {
-  document.getElementById("account").textContent = user ? user.username : "Entrar";
+  document.getElementById("account").textContent = user ? user.username : (guest ? "Invitado" : "Entrar");
   const nav = document.querySelector(".topnav");
   let admin = nav.querySelector('[data-nav="admin"]');
   if (canAdmin() && !admin) {
@@ -1673,7 +1685,7 @@ async function createRoom(players, roomSettings) {
 }
 async function joinRoom(code) {
   code = String(code || "").trim().toUpperCase();
-  if (!user) { pendingRoom = code; loginDialog(); return; }
+  if (!user && !guest) playAsGuest();
   try { await cloud.roomJoin(code); go("room", code); } catch (err) { toast(err.message); }
 }
 
@@ -2290,8 +2302,9 @@ async function boot() {
   const sala = location.hash.match(/^#sala\/([A-Za-z0-9]{6})$/);
   if (sala) {
     history.replaceState(null, "", location.pathname);
-    if (user) { joinRoom(sala[1]); return; }
-    pendingRoom = sala[1];
+    if (!user && !guest) playAsGuest();
+    joinRoom(sala[1]);
+    return;
   }
   const saved = store.get("musst.current", null);
   if (saved?.room?.guest) {
