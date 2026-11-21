@@ -142,7 +142,7 @@ async function apiCall(path, { method = "GET", body, token } = {}) {
 const fmtOutcome = (c, v) => (c.ordago && Math.abs(v) === c.envite ? (v > 0 ? "ganas la partida" : "pierdes la partida") : `${v > 0 ? "+" : ""}${v} tantos`);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content; };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (settings.reduce_motion ? 0.2 : settings.speed)));
+const sleep = (ms) => new Promise((r) => setTimeout(r, current?.quick ? 30 : ms * (settings.reduce_motion ? 0.2 : settings.speed)));
 const announce = (msg) => { $live.textContent = msg; };
 function toast(msg) {
   const el = document.createElement("div"); el.className = "toast"; el.role = "status"; el.textContent = msg;
@@ -499,10 +499,11 @@ function home() {
 // ------------------------------------------------------------------ partida
 async function startGame(body, opts = {}) {
   try {
-    const data = await api("/api/games", { method: "POST", body: { signals: settings.signals !== false, ...body } });
+    const quick = body.mode === "rapida";
+    const data = await api("/api/games", { method: "POST", body: { signals: quick ? false : settings.signals !== false, ...body } });
     current = {
       id: data.game_id, token: data.seat_token, tokens: data.seat_tokens || {}, obs: data.observation, seen: 0,
-      help: Boolean(opts.help), discard: new Set(), amount: 2, busy: false, bubbles: {}, gestures: {},
+      help: Boolean(opts.help), discard: new Set(), amount: 2, busy: false, bubbles: {}, gestures: {}, quick,
       champ: opts.champ || null,  // partido de campeonato: al terminar se apunta el resultado
       guest: !user,
     };
@@ -776,7 +777,7 @@ function renderGame(bubbles = current?.bubbles || {}) {
   const humanTeam = (t) => obs.seats.filter((s) => s.team === t).every((s) => s.kind === "human");
   const teamLabel = (t) => (t === myTeam ? "Tu pareja" : humanTeam(t) ? "Pareja rival" : "Pareja bots");
   // Conteo paso a paso antes de repartir la jugada siguiente
-  if (obs.awaiting_deal && obs.round > 1 && (!current.review || current.review.round !== obs.round - 1)) {
+  if (!current.quick && obs.awaiting_deal && obs.round > 1 && (!current.review || current.review.round !== obs.round - 1)) {
     const r = buildReview(obs, obs.round - 1);
     current.review = r ? { ...r, step: 0 } : { round: obs.round - 1, steps: [], step: 0, done: true };
   }
@@ -849,7 +850,7 @@ function renderGame(bubbles = current?.bubbles || {}) {
   const moment = partnerWatching && !rivalWatching ? ["good", "✅ Buen momento: te mira tu compañero y ningún rival."]
     : rivalWatching ? ["bad", `⚠️ Cuidado: te mira ${watching.filter((x) => x % 2 !== myTeam).map((x) => esc(names[x])).join(" y ")} (rival). Si haces la seña, la verá.`]
       : ["off", "😶 Nadie te mira: si haces la seña ahora, no la verá nadie."];
-  const signalPanel = obs.gazes && obs.gazes.length && !finished && !handoff ? `<section class="signals panel" aria-label="Señas">
+  const signalPanel = !current.quick && obs.gazes && obs.gazes.length && !finished && !handoff ? `<section class="signals panel" aria-label="Señas">
       <div class="sig-col">
         <h2 class="card-title">👀 Ver señas</h2>
         <p>${myLook == null ? "Ahora miras a la mesa." : `Ahora miras a <strong>${esc(names[myLook])}</strong>${myLook === obs.partner ? " (tu compañero)" : " (rival)"}.`}</p>
@@ -904,7 +905,7 @@ function renderGame(bubbles = current?.bubbles || {}) {
     <div class="row game-tools">
       <button class="btn ghost" id="help-btn" aria-expanded="${current.help}">? ¿Qué puedo hacer?</button>
       <button class="btn ghost" id="calc-btn">🧮 Ver el cálculo</button>
-      ${finished ? '<button class="btn primary" id="summary-btn">Ver resumen</button>' : ""}
+      ${finished && !current.quick ? '<button class="btn primary" id="summary-btn">Ver resumen</button>' : ""}
       <button class="btn ghost" id="log-btn">Historial de la jugada</button>
       ${finished ? "" : '<button class="btn ghost" id="mic-btn" title="Di tu jugada en voz alta">🎤 Jugar hablando</button>'}
     </div>
@@ -925,7 +926,7 @@ function renderGame(bubbles = current?.bubbles || {}) {
   document.getElementById("help-btn").onclick = () => { current.help = !current.help; renderGame(); };
   document.getElementById("calc-btn").onclick = showCalculo;
   document.getElementById("log-btn").onclick = () => showLog();
-  if (finished) document.getElementById("summary-btn").onclick = () => showSummary();
+  if (finished && !current.quick) document.getElementById("summary-btn").onclick = () => showSummary();
   if (current.help) loadHelp();
   document.querySelectorAll("#my-hand button.card").forEach((b) => (b.onclick = () => {
     const code = b.dataset.card;
@@ -1026,9 +1027,10 @@ async function animateTo(obs) {
     current.bubbles = current.bubbles || {};
     for (const e of fresh) {
       const bubble = BUBBLE[e.kind];
-      if (SOUND_OF[e.kind]) play(SOUND_OF[e.kind]);
+      if (SOUND_OF[e.kind] && !current.quick) play(SOUND_OF[e.kind]);
       const text = eventText(e, names);
       if (text) announce(text);
+      if (current.quick) continue;
       if (e.kind === "LanceStarted" || e.kind === "DealerAssigned") current.bubbles = {};
       const human = obs.seats[e.actor]?.kind === "human";
       const declared = e.kind === "PairsDeclared" || e.kind === "GameDeclared";
@@ -1082,7 +1084,7 @@ async function animateTo(obs) {
     current.obs = obs;
     checkHandoff();
     renderGame();
-    if (obs.finished) { store.set("musst.current", null); setTimeout(showSummary, 600); syncFinishedGame(obs.game_id); reportChampMatch(obs); }
+    if (obs.finished) { store.set("musst.current", null); setTimeout(current.quick ? showQuickSummary : showSummary, 600); syncFinishedGame(obs.game_id); reportChampMatch(obs); }
   } finally {
     current.animating = false;
   }
@@ -1133,7 +1135,7 @@ async function dealCards() {
 async function animateDeal(obs) {
   const table = document.querySelector(".table");
   const deck = document.querySelector(".deck");
-  if (!table || !deck || settings.reduce_motion) return;
+  if (!table || !deck || settings.reduce_motion || current?.quick) return;
   const me = obs.seat;
   const from = deck.getBoundingClientRect();
   const origin = table.getBoundingClientRect();
@@ -1268,6 +1270,22 @@ function showLog() {
   const lines = obs.history.filter((e) => e.round === obs.round).map((e) => eventText(e, names)).filter(Boolean);
   openModal(`<h2 id="modal-title">Jugada ${obs.round}</h2><div class="event-log"><ol>${lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ol></div>
     <div class="row" style="margin-top:12px"><button class="btn" data-close>Cerrar</button></div>`);
+}
+
+async function showQuickSummary() {
+  try {
+    const a = await api(`/api/games/${current.id}/analysis`, { token: current.token });
+    const won = a.result.winner === a.result.my_team;
+    openModal(`
+      <h2 id="modal-title">${won ? "Victoria" : "Derrota"} · ${a.result.score[a.result.my_team]} – ${a.result.score[1 - a.result.my_team]}</h2>
+      <h3>Momentos clave</h3>
+      <ul>${a.key_moments.slice(0, 3).map((m) => `<li>Jugada ${m.round_no}: ${esc(m.description)}</li>`).join("") || "<li>Partida rápida finalizada.</li>"}</ul>
+      <p class="muted">Este visor se cerrará automáticamente en 10 segundos.</p>`);
+    setTimeout(() => { if ($modal.open) $modal.close(); }, 10000);
+  } catch (err) {
+    openModal(`<h2 id="modal-title">Partida finalizada</h2><p class="muted">No se pudo cargar el resumen.</p>`);
+    setTimeout(() => { if ($modal.open) $modal.close(); }, 10000);
+  }
 }
 
 async function showSummary() {
