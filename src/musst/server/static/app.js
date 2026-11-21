@@ -1272,12 +1272,23 @@ function showLog() {
     <div class="row" style="margin-top:12px"><button class="btn" data-close>Cerrar</button></div>`);
 }
 
+function quickAgentSummary(a) {
+  const summary = a.agent_summary || {};
+  const agents = Object.entries(summary.by_agent || {}).map(([name, count]) => `${esc(name)} (${count})`);
+  const methods = Object.entries(a.method_summary || {}).map(([name, count]) => `${esc(name)}: ${count} decisiones`);
+  return `<p><strong>Decisiones registradas:</strong> ${Number(summary.total_decisions || 0)}</p>
+    ${methods.length ? `<p><strong>Métodos usados:</strong> ${methods.join(" · ")}</p>` : ""}
+    ${agents.length ? `<p><strong>Agentes consultados:</strong> ${agents.join(" · ")}</p>` : '<p class="muted">No hay registros de agentes para esta partida.</p>'}`;
+}
+
 async function showQuickSummary() {
   try {
     const a = await api(`/api/games/${current.id}/analysis`, { token: current.token });
     const won = a.result.winner === a.result.my_team;
     openModal(`
       <h2 id="modal-title">${won ? "Victoria" : "Derrota"} · ${a.result.score[a.result.my_team]} – ${a.result.score[1 - a.result.my_team]}</h2>
+      <h3>Métodos y agentes</h3>
+      ${quickAgentSummary(a)}
       <h3>Momentos clave</h3>
       <ul>${a.key_moments.slice(0, 3).map((m) => `<li>Jugada ${m.round_no}: ${esc(m.description)}</li>`).join("") || "<li>Partida rápida finalizada.</li>"}</ul>
       <p class="muted">Este visor se cerrará automáticamente en 10 segundos.</p>`);
@@ -1300,6 +1311,8 @@ async function showSummary() {
         const q = frase(x.avatar, theyWon ? "gana_partida" : "pierde_partida", a.result.score[0] + a.result.score[1]);
         return q ? `<p class="quote"><span class="quote-face">${faceSVG(x.seat, { pos: "bottom", lookPos: "mesa", avatar: x.avatar })}</span><strong>${esc(x.name)}:</strong> «${esc(q)}»</p>` : "";
       }).join("")}
+      <h3>Métodos y agentes</h3>
+      ${quickAgentSummary(a)}
       <h3>Momentos clave</h3>
       <ul>${a.key_moments.map((m) => `<li>Jugada ${m.round_no}: ${esc(m.description)}</li>`).join("") || "<li>Partida tranquila.</li>"}</ul>
       <h3>Tu partida</h3>

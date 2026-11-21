@@ -440,6 +440,30 @@ class SessionManager:
             raise PermissionError("El análisis solo está disponible al terminar la partida")
         history = [e.to_dict() for e in session.game.events if e.visible_to(None)]
         moments = key_moments(history)
+        agent_counts: dict[str, int] = {}
+        method_counts: dict[str, int] = {}
+        method_names: dict[str, str] = {
+            "": "estrategia clásica",
+            "analitica": "probabilidad analítica",
+            "mc": "Monte Carlo",
+            "bayes": "Monte Carlo + Bayes",
+            "utilidad": "valor esperado",
+            "completo": "modelo completo",
+        }
+        for item in session.decisions:
+            agents = item.get("agents_consulted", [])
+            for agent in agents:
+                agent_counts[agent] = agent_counts.get(agent, 0) + 1
+            matematica = item.get("matematica") or {}
+            math_method = matematica.get("metodo")
+            if isinstance(math_method, dict):
+                decisions_method = math_method.get("decisiones_rivales")
+                method = "Monte Carlo + Bayes" if decisions_method and decisions_method.startswith("Bayes:") else "muestreo de Monte Carlo"
+            else:
+                method = item.get("narrative") or "estrategia clásica"
+            if method in method_names:
+                method = method_names[method]
+            method_counts[method] = method_counts.get(method, 0) + 1
         return {
             "result": {
                 "winner": session.game.result.winner if session.game.result else None,
@@ -452,6 +476,12 @@ class SessionManager:
             "counterfactuals": decision_counterfactuals(history, seat.index),
             "learning": session.learning,
             "history": history,
+            "agent_summary": {
+                "total_decisions": len(session.decisions),
+                "by_agent": dict(sorted(agent_counts.items(), key=lambda pair: (-pair[1], pair[0]))),
+            },
+            "method_summary": dict(sorted(method_counts.items(), key=lambda pair: (-pair[1], pair[0]))),
+            "decisions": session.decisions,
         }
 
     # ------------------------------------------------------------------ persistencia
