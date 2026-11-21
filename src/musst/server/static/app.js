@@ -24,6 +24,7 @@ const store = {
 };
 let settings = { ...DEFAULT_SETTINGS, ...store.get("musst.settings", {}) };
 let user = null;
+let guest = false;
 let current = null; // partida en curso
 let ads = cleanAds(store.get("musst.ads", DEFAULT_ADS)); // publicidad de la mesa (la elige el admin)
 
@@ -361,7 +362,13 @@ const SOUND_OF = {
 
 // ------------------------------------------------------------------ navegación
 const views = { home, learn, arena, stats, settings: settingsView, game: () => renderGame(), tutorial, training, admin: adminView, champs: champsView, champ: champView, profile, room: roomLobby };
-const OPEN_VIEWS = new Set(["learn", "tutorial", "settings"]);
+const OPEN_VIEWS = new Set(["home", "learn", "tutorial", "settings"]);
+function playAsGuest() {
+  guest = true;
+  updateAccount();
+  go("home");
+  toast("Modo invitado: puedes jugar sin una cuenta");
+}
 function loginGate() {
   $main.append(h(`<div class="page"><section class="panel stack login-gate">
     <span class="kicker">MUS.ST</span><h1 class="page-title">Inicia sesión para jugar</h1>
@@ -399,6 +406,7 @@ function home() {
         <p>Una mesa de Mus tradicional llevada al mundo digital: juega, aprende, compite y analiza tu estilo frente a bots que se adaptan a ti.</p>
         <div class="row">
           <button class="btn primary" id="quick">Partida rápida</button>
+          ${user || guest ? "" : `<button class="btn" id="home-guest">Jugar sin iniciar sesión</button>`}
           <button class="btn" data-nav="tutorial">¿No sabes jugar? Empieza aquí</button>
         </div>
       </div>
@@ -447,6 +455,7 @@ function home() {
   </div>`));
   document.querySelectorAll('input[name="signals"]').forEach((r) => (r.onchange = () => { settings.signals = r.value === "1"; saveSettings(); }));
   document.getElementById("quick").onclick = () => startGame({ mode: "rapida", rivals: "medio", partner: "sencillo" });
+  document.getElementById("home-guest")?.addEventListener("click", playAsGuest);
   const syncPlayers = () => {
     const many = document.querySelector('input[name="players"]:checked').value !== "bot";
     document.getElementById("room-hint").hidden = !many;
@@ -475,7 +484,6 @@ function home() {
 
 // ------------------------------------------------------------------ partida
 async function startGame(body, opts = {}) {
-  if (!user) { loginDialog(); return; }
   try {
     const data = await api("/api/games", { method: "POST", body: { signals: settings.signals !== false, ...body } });
     current = {
@@ -1587,7 +1595,7 @@ async function logout() {
   await api("/api/auth/logout", { method: "POST" }); user = null; $modal.close?.(); updateAccount(); go("home");
 }
 function updateAccount() {
-  document.getElementById("account").textContent = user ? user.username : "Entrar";
+  document.getElementById("account").textContent = user ? user.username : (guest ? "Invitado" : "Entrar");
   const nav = document.querySelector(".topnav");
   let admin = nav.querySelector('[data-nav="admin"]');
   if (canAdmin() && !admin) {
