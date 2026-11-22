@@ -132,14 +132,61 @@ def _from_simple(obs: Observation, info: dict[str, Any]) -> str:
     return f"{base}: {rule}." if rule else base + "."
 
 
+AGENTES = {
+    "cartas": "Cartas (fuerza de su mano)",
+    "probabilidad": "Probabilidad (P(ganar el lance))",
+    "marcador": "Marcador (cuánto vale cada tanto según el tanteo)",
+    "conteo": "Conteo (cartas ya vistas)",
+    "comportamiento": "Comportamiento (cómo juega cada rival)",
+    "farol": "Farol (si el rival puede ir de farol)",
+    "pareja": "Pareja (lo que puede hacer su compañero)",
+    "bayesiano": "Bayesiano (actualiza con lo que hacen los demás)",
+    "analista": "Analista (cálculo exacto de los lances)",
+    "evaluador": "Evaluador (valor esperado de cada opción)",
+    "juez_matematico": "Juez matemático (P(ganar la partida))",
+    "juez": "Juez (elige con el riesgo del nivel)",
+    "estrategia": "Estrategia (genera las opciones)",
+}
+
+
+def _method(bot: Any, decision: Decision | None) -> str:
+    """Método de cálculo del bot, en una frase."""
+    if decision is not None and isinstance(decision.math, dict):
+        m = decision.math.get("metodo", {})
+        n = m.get("repartos")
+        bayes = (
+            "con Bayes sobre lo que han hecho los rivales"
+            if m.get("decisiones_rivales", "").startswith("Bayes")
+            else "sin evidencia de los rivales (a priori)"
+        )
+        return (
+            f"Muestreo exacto de repartos{f' ({n})' if n else ''} {bayes}, y decide por "
+            "P(ganar la partida)"
+        )
+    level = getattr(getattr(bot, "level", None), "name", None)
+    samples = getattr(getattr(bot, "level", None), "samples", None)
+    if level == "medio":
+        return f"Monte Carlo: simula unos {samples} repartos posibles de las cartas que no ve"
+    if level == "profesional":
+        return (
+            f"Monte Carlo con unos {samples} repartos, ponderados por lo que sabe de cada "
+            "rival, y valor esperado"
+        )
+    if decision is not None:
+        return "Valor esperado de cada opción"
+    return "Heurística: puntúa su mano de 0 a 100 y aplica reglas fijas"
+
+
 def explain_move(obs: Observation, action: Action, bot: Any) -> dict[str, Any] | None:
     """Una línea «qué hizo y por qué» para el resumen final. ``None`` si no aporta nada."""
     if action.type == "discard":
         return None
     decision = getattr(bot, "last_decision", None)
     reason: str
-    if isinstance(decision, Decision) and decision.action == action:
-        reason = _from_decision(obs, decision)
+    used = decision if isinstance(decision, Decision) and decision.action == action else None
+    agentes = [AGENTES.get(a, a) for a in used.agents_consulted] if used is not None else []
+    if used is not None:
+        reason = _from_decision(obs, used)
     elif isinstance(getattr(bot, "last_reason", None), dict):
         reason = _from_simple(obs, bot.last_reason)
     else:
@@ -151,4 +198,6 @@ def explain_move(obs: Observation, action: Action, bot: Any) -> dict[str, Any] |
         "action": action_label(action),
         "type": action.type,
         "reason": reason,
+        "metodo": _method(bot, used),
+        "agentes": agentes,
     }

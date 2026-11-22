@@ -684,6 +684,52 @@ function pileHTML(obs, seat) {
     <span class="stones-row">${stones}${ghosts}</span><small>${label}</small></div>`;
 }
 
+// Resumen de la jugada al terminarla: un solo texto con cada lance (tantos y por qué), qué hizo
+// cada bot, con qué método y qué agentes consultó. Se ve 6 segundos; con ⏸ se para el tiempo.
+const REVIEW_MS = 6000;
+function startReviewTimer() {
+  clearInterval(current.reviewTimer);
+  Object.assign(current.review, { left: REVIEW_MS, paused: false });
+  current.reviewTimer = setInterval(() => {
+    const r = current?.review;
+    if (!r || r.done || !current.obs?.awaiting_deal) { clearInterval(current?.reviewTimer); return; }
+    if (r.paused) return;
+    r.left -= 200;
+    if (r.left <= 0) { r.done = true; clearInterval(current.reviewTimer); renderGame(); return; }
+    updateReviewClock();
+  }, 200);
+}
+function updateReviewClock() {
+  const r = current?.review; if (!r) return;
+  const clock = document.getElementById("rev-clock");
+  if (clock) clock.textContent = r.paused ? "En pausa" : `${Math.ceil(r.left / 1000)} s`;
+  const bar = document.getElementById("rev-bar");
+  if (bar) bar.style.width = `${Math.max(0, (r.left / REVIEW_MS) * 100)}%`;
+  document.getElementById("rev-pause")?.toggleAttribute("disabled", !!r.paused);
+  document.getElementById("rev-play")?.toggleAttribute("disabled", !r.paused);
+}
+function reviewTextHTML(review, obs, names) {
+  const reasons = review.reasons || [];
+  const botLine = (r) => `<li><strong>${esc(names[r.seat])}</strong>: ${esc(r.action)} — ${esc(r.reason)}
+    <br><small class="muted">Método: ${esc(r.metodo || "—")}${r.agentes?.length ? ` · Agentes: ${esc(r.agentes.join(", "))}` : ""}</small></li>`;
+  const forLance = (l) => { const rs = reasons.filter((r) => r.lance === l); return rs.length ? `<ul class="rev-bots">${rs.map(botLine).join("")}</ul>` : ""; };
+  const mus = forLance("mus");
+  const parts = review.steps.slice(1).map((st) => {
+    const lance = Object.keys(LANCE).find((k) => LANCE[k] === st.title);
+    const pts = st.points?.length ? ` <em>${esc(st.points.join(" · "))}</em>` : st.last ? "" : ' <span class="muted">Sin tantos.</span>';
+    return `<p><strong>${esc(st.title)}:</strong> ${esc(st.text)}${pts}</p>${lance ? forLance(lance) : ""}`;
+  }).join("");
+  return `<div class="review review-text" role="region" aria-label="Resumen de la jugada ${review.round}">
+    <small>Resumen de la jugada ${review.round}</small>
+    <div class="rev-scroll">${mus ? `<p><strong>Mus:</strong></p>${mus}` : ""}${parts}</div>
+    <div class="rev-progress" aria-hidden="true"><span id="rev-bar" style="width:${Math.max(0, ((review.left ?? REVIEW_MS) / REVIEW_MS) * 100)}%"></span></div>
+    <div class="row rev-controls">
+      <button class="btn small-btn" id="rev-pause" ${review.paused ? "disabled" : ""}>⏸ Pausa</button>
+      <button class="btn small-btn" id="rev-play" ${review.paused ? "" : "disabled"}>▶ Play</button>
+      <span id="rev-clock" class="muted" aria-live="polite">${review.paused ? "En pausa" : `${Math.ceil((review.left ?? REVIEW_MS) / 1000)} s`}</span>
+    </div></div>`;
+}
+
 // Conteo de la jugada, paso a paso, en el centro de la mesa.
 const shortRank = (code) => { const { rank } = parseCard(code); return { 1: "A", 2: "A", 3: "R", 10: "S", 11: "C", 12: "R" }[rank] ?? String(rank); };
 function buildReview(obs, round) {
@@ -789,7 +835,8 @@ function renderGame(bubbles = current?.bubbles || {}) {
   // Conteo paso a paso antes de repartir la jugada siguiente
   if (obs.awaiting_deal && obs.round > 1 && (!current.review || current.review.round !== obs.round - 1)) {
     const r = buildReview(obs, obs.round - 1);
-    current.review = r ? { ...r, step: 0 } : { round: obs.round - 1, steps: [], step: 0, done: true };
+    current.review = r ? { ...r, step: 0, reasons: obs.round_reasons || [] } : { round: obs.round - 1, steps: [], step: 0, done: true };
+    if (r) startReviewTimer();
   }
   const review = obs.awaiting_deal && current.review && !current.review.done && current.review.steps.length ? current.review : null;
   const step = review ? review.steps[review.step] : null;
@@ -838,12 +885,7 @@ function renderGame(bubbles = current?.bubbles || {}) {
     ${'<span class="back"></span>'.repeat(4)}<small>Reparte ${esc(names[obs.dealer])}</small></div>`;
   let center;
   if (review) {
-    center = `<div class="review" role="region" aria-label="Conteo de la jugada ${review.round}">
-      <small>Conteo de la jugada ${review.round} · ${review.step + 1}/${review.steps.length}</small>
-      <div class="lance-title">${esc(step.title)}</div><p>${esc(step.text)}</p>
-      ${step.points?.length ? `<ul>${step.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : step.last ? "" : '<p class="muted">Sin tantos en este lance.</p>'}
-      <div class="row">${review.step > 0 ? '<button class="btn small-btn" id="rev-prev">◀ Anterior</button>' : ""}
-        ${step.last ? `<button class="btn primary" id="deal-btn">${obs.dealer === me ? "Repartir" : "¿Repartimos? Sí"}</button>` : '<button class="btn primary" id="rev-next">Siguiente ▶</button>'}</div></div>`;
+    center = reviewTextHTML(review, obs, names);
   } else if (obs.awaiting_deal) {
     center = `<div><div class="lance-title">Reparto</div><p>${obs.dealer === me ? "Te toca repartir." : `Reparte ${esc(names[obs.dealer])}; la baraja está a su derecha.`} Es mano ${esc(names[obs.mano])}.</p>
       <button class="btn primary" id="deal-btn">${obs.dealer === me ? "Repartir" : "¿Repartimos? Sí"}</button></div>`;
@@ -928,8 +970,8 @@ function renderGame(bubbles = current?.bubbles || {}) {
   document.querySelectorAll("[data-msg]").forEach((b) => (b.onclick = () => sayToTable(QUICK_MSGS[Number(b.dataset.msg)])));
   renderActions();
   document.getElementById("deal-btn")?.addEventListener("click", () => { if (current.review) current.review.done = true; dealCards(); });
-  document.getElementById("rev-next")?.addEventListener("click", () => { current.review.step += 1; renderGame(); });
-  document.getElementById("rev-prev")?.addEventListener("click", () => { current.review.step -= 1; renderGame(); });
+  document.getElementById("rev-pause")?.addEventListener("click", () => { current.review.paused = true; updateReviewClock(); });
+  document.getElementById("rev-play")?.addEventListener("click", () => { current.review.paused = false; updateReviewClock(); });
   document.getElementById("handoff-btn")?.addEventListener("click", () => switchViewer(handoff));
   document.querySelectorAll("[data-look]").forEach((b) => (b.onclick = () => lookAt(Number(b.dataset.look))));
   document.querySelectorAll("[data-signal]").forEach((b) => (b.onclick = () => makeSignal(b.dataset.signal)));

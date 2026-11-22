@@ -663,3 +663,18 @@ body.playing .deck-left { bottom: auto; top: 54%; left: 22%; }
 .speed-field { border: 0; padding: 0; margin: 0; display: inline-flex; align-items: center; gap: 6px; }
 .speed-field legend { float: left; font-size: .9em; color: var(--muted, #666); margin-right: 6px; }
 .speed-seg label { font-size: .9em; }
+
+/* Resumen de cada jugada en la mesa (6 s, con pausa) */
+.review-text { max-width: 560px; width: 100%; justify-items: stretch; text-align: left; }
+.review-text > small { justify-self: center; }
+.rev-scroll { max-height: min(240px, 38vh); overflow-y: auto; font-size: .92em; line-height: 1.35; padding-right: 4px; }
+.rev-scroll p { margin: 6px 0 2px; }
+.rev-bots { margin: 0 0 4px; padding-left: 18px; }
+.rev-bots li { margin: 2px 0; }
+.rev-progress { height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; overflow: hidden; }
+.rev-progress span { display: block; height: 100%; background: var(--gold, #d4a017); transition: width .2s linear; }
+.rev-controls { justify-content: center; align-items: center; gap: 8px; }
+.review-text .muted, .review-text small { color: rgb(255 255 255 / .78); }
+.review-text .rev-bots small { font-size: .82em; }
+.rev-controls .btn[disabled] { opacity: .45; }
+.rev-controls .btn { background: #f3ead7; color: #1f2a24; border-color: #f3ead7; font-weight: 700; }

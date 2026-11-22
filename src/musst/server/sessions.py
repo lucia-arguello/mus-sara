@@ -434,6 +434,10 @@ class SessionManager:
             obs["hand"] = []  # aún no se han repartido las cartas a la vista del jugador
             obs["legal_actions"] = []
             obs["available_signals"] = []
+        # Por qué jugó cada bot en la jugada que acaba de terminar: ya se han enseñado las
+        # cartas, así que no delata nada (se muestra en el conteo entre jugadas).
+        last = session.game.round_no - 1
+        obs["round_reasons"] = [r for r in session.reasons if r["round"] == last]
         if session.status == "FINISHED":
             obs["learning"] = session.learning
         return obs

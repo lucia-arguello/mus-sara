@@ -52,6 +52,37 @@ def test_el_resumen_explica_las_decisiones_de_los_bots(tmp_path: Path):
     # (probabilidades calculadas).
     assert any("/100" in r["reason"] for r in reasons if r["seat"] == 2 and r["type"] != "mus")
     assert any("probabilidad" in r["reason"] for r in reasons if r["seat"] in (1, 3))
+    # Método y agentes de cada decisión (para el resumen de cada jugada).
+    medio = [r for r in reasons if r["seat"] in (1, 3) and r["type"] != "mus"]
+    assert all("Monte Carlo" in r["metodo"] for r in medio)
+    assert any(any("Probabilidad" in a for a in r["agentes"]) for r in medio)
+    assert all(r["agentes"] == [] for r in reasons if r["seat"] == 2)
+
+
+def test_entre_jugadas_se_ven_las_razones_de_la_jugada_anterior(tmp_path: Path):
+    b = LocalBackend(tmp_path)
+    _, d = b.handle("POST", "/api/games", {"seed": 7}, None)
+    gid, tok = d["game_id"], d["seat_token"]
+    for _ in range(500):
+        _, obs = b.handle("GET", f"/api/games/{gid}", None, tok)
+        if obs.get("awaiting_deal") and obs["round"] > 1:
+            break
+        if obs.get("awaiting_deal"):
+            b.handle("POST", f"/api/games/{gid}/deal", None, tok)
+        elif obs["turn"] != obs["seat"]:
+            b.handle("POST", f"/api/games/{gid}/tick", None, tok)
+        else:
+            types = [a["type"] for a in obs["legal_actions"]]
+            act = (
+                next({"type": t} for t in ("cut", "pass", "reject", "accept") if t in types)
+                if "discard" not in types
+                else {"type": "discard", "cards": [obs["hand"][0]]}
+            )
+            b.handle("POST", f"/api/games/{gid}/action", {"action": act}, tok)
+    assert obs.get("awaiting_deal") and obs["round"] > 1
+    prev = obs["round_reasons"]
+    assert prev and all(r["round"] == obs["round"] - 1 for r in prev)
+    assert all("metodo" in r and "agentes" in r for r in prev)
 
 
 def test_etiquetas_en_castellano():
