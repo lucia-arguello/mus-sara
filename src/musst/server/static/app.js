@@ -510,10 +510,11 @@ function home() {
 // ------------------------------------------------------------------ partida
 async function startGame(body, opts = {}) {
   try {
-    const data = await api("/api/games", { method: "POST", body: { signals: settings.signals !== false, ...body } });
+    const quick = body.mode === "rapida";
+    const data = await api("/api/games", { method: "POST", body: { signals: quick ? false : settings.signals !== false, ...body } });
     current = {
       id: data.game_id, token: data.seat_token, tokens: data.seat_tokens || {}, obs: data.observation, seen: 0,
-      help: Boolean(opts.help), discard: new Set(), amount: 2, busy: false, bubbles: {}, gestures: {},
+      help: Boolean(opts.help), discard: new Set(), amount: 2, busy: false, bubbles: {}, gestures: {}, quick,
       champ: opts.champ || null,  // partido de campeonato: al terminar se apunta el resultado
       guest: !user,
     };
@@ -902,7 +903,7 @@ function renderGame(bubbles = current?.bubbles || {}) {
   const moment = partnerWatching && !rivalWatching ? ["good", "✅ Buen momento: te mira tu compañero y ningún rival."]
     : rivalWatching ? ["bad", `⚠️ Cuidado: te mira ${watching.filter((x) => x % 2 !== myTeam).map((x) => esc(names[x])).join(" y ")} (rival). Si haces la seña, la verá.`]
       : ["off", "😶 Nadie te mira: si haces la seña ahora, no la verá nadie."];
-  const signalPanel = obs.gazes && obs.gazes.length && !finished && !handoff ? `<section class="signals panel" aria-label="Señas">
+  const signalPanel = !current.quick && obs.gazes && obs.gazes.length && !finished && !handoff ? `<section class="signals panel" aria-label="Señas">
       <div class="sig-col">
         <h2 class="card-title">👀 Ver señas</h2>
         <p>${myLook == null ? "Ahora miras a la mesa." : `Ahora miras a <strong>${esc(names[myLook])}</strong>${myLook === obs.partner ? " (tu compañero)" : " (rival)"}.`}</p>
@@ -1377,6 +1378,15 @@ function botReasonsHTML(a, obs) {
       ${rest ? `<details><summary>Ver también sus ${rest} pasos y decisiones de mus</summary><ul>${mine.filter((r) => ["pass", "mus", "cut"].includes(r.type)).map(fmt).join("")}</ul></details>` : ""}</div>`;
   }).join("");
 }
+function quickAgentSummary(a) {
+  const summary = a.agent_summary || {};
+  const agents = Object.entries(summary.by_agent || {}).map(([name, count]) => `${esc(name)} (${count})`);
+  const methods = Object.entries(a.method_summary || {}).map(([name, count]) => `${esc(name)}: ${count} decisiones`);
+  return `<p><strong>Decisiones registradas:</strong> ${Number(summary.total_decisions || 0)}</p>
+    ${methods.length ? `<p><strong>Métodos usados:</strong> ${methods.join(" · ")}</p>` : ""}
+    ${agents.length ? `<p><strong>Agentes consultados:</strong> ${agents.join(" · ")}</p>` : '<p class="muted">No hay registros de agentes para esta partida.</p>'}`;
+}
+
 async function showSummary() {
   try {
     const a = await api(`/api/games/${current.id}/analysis`, { token: current.token });
@@ -1394,6 +1404,8 @@ async function showSummary() {
         return q ? `<p class="quote"><span class="quote-face">${faceSVG(x.seat, { pos: "bottom", lookPos: "mesa", avatar: x.avatar })}</span><strong>${esc(x.name)}:</strong> «${esc(q)}»</p>` : "";
       }).join("")}
       ${(a.bot_reasons || []).length ? `<h3>Qué decidieron los bots y por qué</h3><p class="muted">Cada bot explica sus envites, sus «quiero» / «no quiero» y sus órdagos con lo que calculó en ese momento (sin ver tus cartas).</p>${botReasonsHTML(a, obs)}` : ""}
+      <h3>Métodos y agentes de los bots</h3>
+      ${quickAgentSummary(a)}
       <h3>Momentos clave</h3>
       <ul>${a.key_moments.map((m) => `<li>Jugada ${m.round_no}: ${esc(momentoEs(m.description, a.result.my_team))}</li>`).join("") || "<li>Partida tranquila.</li>"}</ul>
       <h3>Tu partida</h3>

@@ -53,6 +53,11 @@ def test_partida_completa_humano_contra_bots(client):
     )
     assert analysis.status_code == 200
     assert "stats" in analysis.json()
+    payload = analysis.json()
+    assert "agent_summary" in payload
+    assert "method_summary" in payload
+    assert "decisions" in payload
+    assert payload["agent_summary"]["total_decisions"] == len(payload["decisions"])
 
 
 def test_la_observacion_no_contiene_cartas_de_otros(client):
