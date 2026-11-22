@@ -116,7 +116,12 @@ p { margin: 0 0 1em; }
 }
 .btn:hover { filter: brightness(.97); }
 .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn { color: var(--fg); }
 .btn.ghost { background: none; }
+/* En las ventanas (Entrar, Cancelar, Cerrar…) el botón secundario lleva fondo y texto propios:
+   nunca hereda un color que lo deje blanco sobre blanco. */
+dialog .btn:not(.primary) { background: var(--surface-2); color: var(--fg); border-color: var(--line); }
+dialog .btn.ghost { background: var(--surface-2); border: 1px solid var(--fg); color: var(--fg); }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .form-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 label.field { display: grid; gap: 4px; font-weight: 500; font-size: .92rem; }
